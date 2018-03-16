@@ -181,7 +181,7 @@ class NucleiDataset(data.Dataset):
 
 # In[20]:
 
-BATCH_SIZE = 1
+BATCH_SIZE = 16
 train_ds = NucleiDataset(train_images, train_masks, is_train=True)
 train_dl = data.DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True)
 val_ds = NucleiDataset(val_images, val_masks, is_train=False)
@@ -324,21 +324,24 @@ def calculate_IOU(pred, target, threshold):
     precision = tp.float()/(tp + fp + fn).float()
     return precision
 
-def create_thresholded_mask(pred, target, thresholds):
-    return {str(t / 100.0): {"pred": (pred >= t/100.0).float().squeeze().data.numpy(),
-                             "target": target.data.numpy()}
-            for t in thresholds}
+def create_thresholded_mask(pred, thresholds):
+    return {str(t / 100.0): (pred >= t/100.0).float().squeeze(1).data.numpy() for t in thresholds}
+
+def cudarize(tensor):
+    if torch.cuda.is_available():
+        return tensor.cuda()
+    return tensor
 
 from model.unet import UNet
 NUM_EPOCHS = 4
 thresholds = range(50, 100, 5)
-u_net = UNet(n_input_channels=4, n_classes=1)
+u_net = cudarize(UNet(n_input_channels=4, n_classes=1))
 criterion = nn.BCELoss()
 optimizer = torch.optim.Adam(u_net.parameters())
 
 
 
-for i in tqdm(range(NUM_EPOCHS)):
+for i in range(NUM_EPOCHS):
     train_masks = []
     train_precisions = []
     train_losses = []
@@ -346,19 +349,20 @@ for i in tqdm(range(NUM_EPOCHS)):
         optimizer.zero_grad()
         u_net.train()
         batch_size = len(d['input'])
-        inp = Variable(d['input'])
+        inp = cudarize(Variable(d['input']))
         pred = F.sigmoid(u_net(inp))
-        target = Variable(d['mask']).unsqueeze(1) # to keep same dims as pred
-        precision = calculate_thresholded_precision(pred, target, thresholds)
-        masks = create_thresholded_mask(pred, target, thresholds)
+        target = cudarize(Variable(d['mask'])).unsqueeze(1) # to keep same dims as pred
+        precision = calculate_thresholded_precision(pred.cpu(), target.cpu(), thresholds)
+        masks = create_thresholded_mask(pred.cpu(), thresholds)
         # train_masks.append(masks)
         loss = criterion(pred, target)
         train_precisions.append(precision.data.numpy())
-        train_losses.append(loss.data.numpy())
+        train_losses.append(loss.cpu().data.numpy())
         loss.backward()
         optimizer.step()
-        print(f"Average precision for training batch {train_idx + 1}/{len(train_dl)} is: {round(precision.data[0], 5)}")
-        print(f"Average loss for training batch {train_idx + 1}/{len(train_dl)} is: {round(loss.data[0], 5)}")
+        tqdm.write(f"Precision: {round(precision.data[0], 3)} Loss: {round(loss.data[0], 3)}")
+        # print(f"Average precision for training batch {train_idx + 1}/{len(train_dl)} is: {round(precision.data[0], 5)}")
+        # print(f"Average loss for training batch {train_idx + 1}/{len(train_dl)} is: {round(loss.data[0], 5)}")
 
 
     val_masks = []
@@ -367,16 +371,16 @@ for i in tqdm(range(NUM_EPOCHS)):
     for val_idx, d in enumerate(tqdm(val_dl)):
         u_net.eval()
         batch_size = len(d['input'])
-        inp = Variable(d['input'])
-        pred = F.sigmoid(u_net(inp).view(batch_size, -1))
-        target = Variable(d['mask']).view(batch_size, -1).unsqueeze(1)
-        precision = calculate_thresholded_precision(pred, target, thresholds)
-        masks = create_thresholded_mask(pred, target, thresholds)
+        inp = cudarize(Variable(d['input']))
+        pred = F.sigmoid(u_net(inp))
+        target = cudarize(Variable(d['mask'])).unsqueeze(1)  # to keep same dims as pred
+        precision = calculate_thresholded_precision(pred.cpu(), target.cpu(), thresholds)
+        masks = create_thresholded_mask(pred.cpu(), thresholds)
         # val_masks.append(masks)
         loss = criterion(pred, target)
         val_precisions.append(precision.data.numpy())
-        val_losses.append(loss.data.numpy())
-        print(f"Average precision for validation batch {val_idx + 1}/{len(val_dl)} is: {round(precision.data[0], 5)}")
-        print(f"Average loss for training batch {val_idx + 1}/{len(val_dl)} is: {round(loss.data[0], 5)}")
+        val_losses.append(loss.cpu().data.numpy())
+        tqdm.write(f"Precision: {round(precision.data[0], 3)} Loss: {round(loss.data[0], 3)}")
 
-    torch.save(u_net.state_dict(), f"model_checkpoints/epoch_{i+1}.loss_{np.mean(val_losses)}.precision_{np.mean(val_precisions)}")
+
+    torch.save(u_net.state_dict(), f"model_checkpoints/epoch_{i+1}.loss_{round(np.mean(val_losses), 2)}.precision_{round(np.mean(val_precisions), 2)}")

@@ -74,8 +74,8 @@ class Bridge(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
         self.bridge = nn.Sequential(
-            ConvBlock(in_channels, out_channels, with_nonlinearity=False),
-            ConvBlock(out_channels, out_channels, with_nonlinearity=False)
+            ConvBlock(in_channels, out_channels),
+            ConvBlock(out_channels, out_channels)
         )
 
     def forward(self, x):
@@ -109,15 +109,15 @@ class UNet(nn.Module):
                 f"Please choose a valid upsampling method 'conv_transpose' or 'bilinear'"
             )
 
-        self.down_blocks = []
-        self.up_blocks = []
+        down_blocks = []
+        up_blocks = []
 
         # Construct downsampling layers
         in_channels = n_input_channels
         out_channels = n_init_channels
         for _ in range(depth - 1):
             down_block = DownBlock(in_channels, out_channels)
-            self.down_blocks.append(down_block)
+            down_blocks.append(down_block)
             in_channels = out_channels
             out_channels *= 2
 
@@ -130,10 +130,12 @@ class UNet(nn.Module):
 
         for _ in range(depth-1):
             up_block = UpBlock(in_channels, out_channels)
-            self.up_blocks.append(up_block)
+            up_blocks.append(up_block)
             in_channels = out_channels
             out_channels = int(out_channels/2)
 
+        self.down_blocks = nn.ModuleList(down_blocks)
+        self.up_blocks = nn.ModuleList(up_blocks)
         # Construct final layer
         self.out = nn.Conv2d(in_channels, n_classes, kernel_size=1, stride=1)
 
