@@ -6,6 +6,7 @@ from utils.dataset import create_dataloader
 from utils.preprocessing import create_data, load_data, train_val_split
 from utils.evaluation import calculate_thresholded_precision, create_thresholded_mask
 from utils.cuda import cudarize
+from utils.loss import soft_dice_loss
 from model import UNet
 import json
 from argparse import ArgumentParser
@@ -41,8 +42,8 @@ def main(imgs, masks, save_path, n_epochs, batch_size):
             model.eval()
             loss, precision, masks = step(model, optimizer, criterion, batch, is_train=False)
             tqdm.write(f"Precision: {round(precision.data[0], 3)} Loss: {round(loss.data[0], 3)}")
-            val_loss.append(loss)
-            val_precision.append(val_precision)
+            val_loss.append(loss.cpu().data[0])
+            val_precision.append(precision)
 
         val_avg_loss = np.mean(val_loss)
         val_avg_precision = np.mean(val_precision)
@@ -58,8 +59,10 @@ def step(model, optimizer, criterion, batch, is_train):
     target = cudarize(Variable(batch['mask'])).unsqueeze(1)  # to keep same dims as pred
     precision = calculate_thresholded_precision(pred.cpu(), target.cpu(), thresholds)
     masks = create_thresholded_mask(pred.cpu(), thresholds)
-    loss = criterion(pred, target)
+    loss = soft_dice_loss(pred, target)
+    # loss = 1 - precision
     if is_train:
+        optimizer.zero_grad()
         loss.backward()
         optimizer.step()
     return loss, precision, masks
