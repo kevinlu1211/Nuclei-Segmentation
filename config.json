@@ -1,9 +1,9 @@
 {
   "save_path": "model_checkpoints",
+  "data_save_path": "data/train.p",
   "load_from_disk": true,
-  "image_load_path": "data/training_images.p",
-  "mask_load_path": "data/stacked_masks.p",
   "data_path": "data/stage1_train",
-  "n_epochs": 4,
-  "batch_size": 1
+  "criterion": "soft_dice_loss",
+  "n_epochs": 10,
+  "batch_size": 16
 }
