@@ -52,7 +52,6 @@ def main(data, save_path, n_epochs, batch_size, criterion):
         torch.save(model.state_dict(), f"{epoch_save_path}/{checkpoint_save_name}")
 
 
-
 def step(model, optimizer, criterion, batch, is_train):
     inp = cudarize(Variable(batch['input']))
     pred = F.sigmoid(model(inp))
